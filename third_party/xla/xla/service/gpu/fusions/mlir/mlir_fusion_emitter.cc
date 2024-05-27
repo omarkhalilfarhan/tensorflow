@@ -287,7 +287,7 @@ MlirFusionEmitterBase::CreateLLVMModule(
     const BufferAssignment* buffer_assignment) const {
   bool is_amd = std::holds_alternative<se::RocmComputeCapability>(
       device.gpu_compute_capability());
-  auto* hlo_module = fusion.GetModule();
+  HloModule* hlo_module = fusion.GetModule();
   std::unique_ptr<mlir::interpreter::MlirCompilationTrace> trace = nullptr;
   if (DumpingEnabledForHloModule(*hlo_module) &&
       DumpingEnabledForHloPass("mlir-fusion-emitter",
@@ -334,7 +334,8 @@ MlirFusionEmitterBase::CreateLLVMModule(
   pm.addPass(CreateLowerToLLVMPass());
   pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 
-  auto pipeline_status = RunPassPipeline(module.get(), pm, trace.get());
+  auto pipeline_status =
+      RunPassPipeline(hlo_module, module.get(), pm, trace.get());
   if (trace) {
     DumpPerModuleProtobufToFile(
         *hlo_module, *trace, hlo_module->config().debug_options(),
@@ -560,7 +561,7 @@ MlirFusionEmitterBase::EmitEpilogue(
 }
 
 absl::Status MlirFusionEmitterBase::RunPassPipeline(
-    mlir::ModuleOp module, mlir::PassManager& pm,
+    const HloModule* hlo_module, mlir::ModuleOp module, mlir::PassManager& pm,
     mlir::interpreter::MlirCompilationTrace* trace) const {
   if (VLOG_IS_ON(5)) {
     module.getContext()->disableMultithreading();
@@ -572,12 +573,15 @@ absl::Status MlirFusionEmitterBase::RunPassPipeline(
         std::make_unique<mlir::interpreter::MlirCompilerTraceInstrumentation>(
             *trace));
   }
+
+  if (DumpingEnabledForHloModule(*hlo_module)) {
+    DumpToFileInDirOrStdout(*hlo_module, "mlir_emitters", "mlir",
+                            llvm_ir::DumpToString(module));
+  }
+
   if (pm.run(module).failed()) {
     std::string module_dump;
-    llvm::raw_string_ostream os(module_dump);
-    module->print(os);
-    return absl::InternalError(absl::StrFormat(
-        "Failed to run pass pipeline.\nMLIR module:\n%s", module_dump));
+    return absl::InternalError("Failed to run pass pipeline");
   }
   return absl::OkStatus();
 }
