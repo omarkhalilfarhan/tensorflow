@@ -64,7 +64,15 @@ def gpu_kernel_library(name, copts = [], local_defines = [], **kwargs):
 
 register_extension_info(extension = gpu_kernel_library, label_regex_for_dep = "{extension_name}")
 
-def gen_gpu_hlo_compile_tests(name, hlo_files, multihost_hlo_runner_binary_path, backends = [], disabled_backends = [], backend_tags = {}, backend_args = {}):
+def gen_gpu_hlo_compile_tests(
+        name,
+        hlo_files,
+        multihost_hlo_runner_binary_path,
+        backends = [],
+        disabled_backends = [],
+        backend_tags = {},
+        backend_args = {},
+        disable_autotune = False):
     """Macro to generate Bazel tests for compiling HLO files on a GPU.
 
     This macro creates individual Bazel test targets for each specified HLO file.
@@ -113,6 +121,12 @@ def gen_gpu_hlo_compile_tests(name, hlo_files, multihost_hlo_runner_binary_path,
         executable = True,
     )
 
+    xla_gpu_autotune_level = 4
+    autotune_name = "autotune"
+    if disable_autotune:
+        xla_gpu_autotune_level = 0
+        autotune_name = "noautotune"
+
     for filename in hlo_files:
         hlo_path = "%s/%s" % (native.package_name(), filename)
 
@@ -159,7 +173,7 @@ def gen_gpu_hlo_compile_tests(name, hlo_files, multihost_hlo_runner_binary_path,
 
         for backend in backends:
             native.sh_test(
-                name = "gpu_compile_%s_%s_hlo_test" % (filename, backend),
+                name = "gpu_compile_%s_%s_%s_hlo_test" % (filename, autotune_name, backend),
                 srcs = [name + "_gensh"],
                 args = [
                     "--device_type=gpu",
@@ -168,6 +182,7 @@ def gen_gpu_hlo_compile_tests(name, hlo_files, multihost_hlo_runner_binary_path,
                     "--num_partitions=%d" % num_partitions,
                     "--use_spmd_partitioning=true",
                     "--hlo_file=%s" % hlo_path,
+                    "--xla_gpu_autotune_level=%d" % xla_gpu_autotune_level,
                 ],
                 data = ["//xla/tools/multihost_hlo_runner:cuda_hlo_runner_main", data_label],
                 tags = backend_tags[backend] + ["requires-mem:16g"],
